@@ -236,7 +236,7 @@ def generalised_corrective_term(u, dx, r1, r2, delta1, delta2, d=(1,1)):
     return ( (d[0]-d[1])*partial_u**2 + r1 - r2 + np.sqrt( r1 - r2 + 4*delta1*delta2 ) ) / ( 2 * delta2 )
 
 
-def hamiltonian_fitness(q, r1, r2, delta1, delta2):
+def hamiltonian_fitness(r1, r2, delta1, delta2):
     """
     
     """
@@ -428,7 +428,7 @@ def simulation(n1_0, n2_0, r1, r2, delta1, delta2, t_min=0, t_max=1, dt=0.01, x_
     
     # Time and space discretisation
     n_t = int((t_max+dt-t_min)/dt)
-    X=np.arange(0,x_max+dx,dx)
+    X=np.arange(x_min,x_max+dx,dx)
     n_x = X.size
     
     # Initialisation
@@ -472,8 +472,15 @@ def simulation(n1_0, n2_0, r1, r2, delta1, delta2, t_min=0, t_max=1, dt=0.01, x_
 
 
 def env1(t):
-    return 0.5 * ( 1 + np.cos(4*np.pi*t))
+    return 0.5 * ( 1 + np.cos(4*np.pi*t/20))
 
+
+def env2(t):
+    return np.cos(4*np.pi*t/20)**8
+    
+
+def env3(t):
+    return np.cos(4*np.pi*t*20)**8
 
 
 def changing_environment(n1_0, n2_0, env, t_min=0, t_max=1, dt=0.01, x_min=0, x_max=8, dx=0.1, eps = 0.02, d=(1,1), var=("slope",1.5), display_text=False) :
@@ -502,7 +509,7 @@ def changing_environment(n1_0, n2_0, env, t_min=0, t_max=1, dt=0.01, x_min=0, x_
     
     # Time and space discretisation
     n_t = int((t_max+dt-t_min)/dt)
-    X=np.arange(0,x_max+dx,dx)
+    X=np.arange(x_min,x_max+dx,dx)
     n_x = X.size
     
     # Initialisation
@@ -522,7 +529,10 @@ def changing_environment(n1_0, n2_0, env, t_min=0, t_max=1, dt=0.01, x_min=0, x_
     # Computation of the solution
     for i in range(n_t) :
         
-        print(i)
+        # runs are quite long so we print the percentage done to know where we are
+        # just to know if we have time to go grab some coffee or play (i.e. loose) another SC2 game
+        # like, seriously, I won't say protoss is imba, but those canon rush into proxy immortal are REALLY annoying
+        print(int(i/n_t*10000)/100, "%")
         
         repair = np.zeros(X.size)
         if var[0] == "mean":
@@ -560,260 +570,467 @@ def changing_environment(n1_0, n2_0, env, t_min=0, t_max=1, dt=0.01, x_min=0, x_
         
     return n1, n2   
 
+## Changing environment quicker version
 
 
+def quick_changing_environment(n1_0, n2_0, repair, r2, delta1, delta2, env, t_min=0, t_max=1, dt=0.01, x_min=0, x_max=8, dx=0.1, eps = 0.02, d=(1,1), display_text=False) :
+    """
+    Compute a numerical simulation of the reduced model up to time t_max.
+    The heat equation is solved using a Cranck-Nickolson scheme. Zero-order terms are treated explicitely.
+    
+    Args:
+        n1_0 (numpy.ndarray): initial repartition of n1.
+        n2_0 (numpy.ndarray): initial repartition of n2.
+        env (function): function giving the environmental variation.
+        t_min (float, optional): starting time of the simulation, default to 0.
+        t_max (float, optional): final time of the simulation, default to 1.
+        dt (float, optional): time step of the simulation, default to 0.01 .
+        x_min (float, optional): minimal value for space, default to 0.
+        x_max (float, optional): maximal value for space, defaults to 8.
+        dx (float, optional): space step of the simulation, defaults to 0.1 .
+        eps (float, optional): diffusion coefficient, defaults to 0.02.
+        d (tuple, optional): two values for the diffusion parameters d1 and d2, defaults to (1,1)
+        display_text (bool, optional): wether to display information on parameters, defaults to False.
+    
+    Returns:
+        numpy.ndarray: final repartition of n1.
+        numpy.ndarray: final repartition of n2.
+    """
+    
+    # Time and space discretisation
+    n_t = int((t_max+dt-t_min)/dt)
+    X=np.arange(x_min,x_max+dx,dx)
+    n_x = X.size
+    
+    # Initialisation
+    n1 = n1_0
+    n2 = n2_0
+    
+    lm = laplacian_matrix(n_x)
+    
+    scheme_impl_n1 = np.eye(n_x) - (1/2) * d[0] * eps * dt/dx**2 * lm 
+    scheme_expl_n1 = np.eye(n_x) + (1/2) * d[0] * eps * dt/dx**2 * lm 
+    
+    scheme_impl_n2 = np.eye(n_x) - (1/2) * d[1] * eps * dt/dx**2 * lm 
+    scheme_expl_n2 = np.eye(n_x) + (1/2) * d[1] * eps * dt/dx**2 * lm 
+    
+    print("n_t = ",n_t)
+    
+    # Computation of the solution
+    for i in range(n_t) :
+        
+        r1 = 1 - D + env(t_min+i*dt)*D*repair
+        
+        N = total_pop(n1, n2, X)
+        
+        n1_tmp = np.dot(scheme_expl_n1, n1) + (1/eps)*dt*source_1(n1, n2, N, r1, delta1)
+        n2_tmp = np.dot(scheme_expl_n2, n2) + (1/eps)*dt*source_2(n1, n2, N, r2, delta2)
+        n1 = lng.solve( scheme_impl_n1, n1_tmp)
+        n2 = lng.solve( scheme_impl_n2, n2_tmp)
+        
+    
+    # Display information about the simulation
+    if display_text :
+        print("Time from ", t_min, "to ", t_max, "with dt = ", dt)
+        print("Space from ", x_min, "to ", x_max, "with dx = ", dx)
+        print("Diffusion eps = ", eps)
+        print("Initial condition n2_0 = ", n2_0)
+        
+    return n1, n2   
 
-## Tests
 
-# 
-# # Time:
-# t_min = 0
-# t_max = 110
-# dt = 0.01
-# 
-# # Space:
-# x_min = 0
-# x_max = 12
-# dx = 0.05
-# X = np.arange(0,x_max+dx,dx)
-# 
-# # Scale :
-# eps = 0.001
-# 
-# # Initial condition :
-# # n_0 = 1/8 * np.ones(X.size)
-# 
-# n_0 = X.copy()
-# for i in range(n_0.size) :
-#     n_0[i] = 4  *np.exp(-10*(X[i]-4)**2)
-# 
-# # n_0 = 1/8 * np.ones(X.size)
-# 
-# # Précalcul
-# repair = repair_vector(X)
-# adapt = adapt_vector(X)
-# 
-# # Initialisation
-# n, a = reduced_problem(n_0, None, t_min, t_max, dt, x_min, x_max, dx,
-#                                                      eps, repair, adapt, False)
-# 
-# # Itération
-# fig, ax = plt.subplots()
-# # ax.plot(X,n_0)
-# for i in range(30) :
-#     n, a = reduced_problem(n, a, t_min, t_max, dt, x_min, x_max, dx,
-#                                                      eps, repair, adapt, False, False)
-#     
-# ax.plot(X,n, label="eps=0.001")
-# 
-# 
-# 
-# eps = 0.0001
-# n_0 = X.copy()
-# for i in range(n_0.size) :
-#     n_0[i] = 4  *np.exp(-10*(X[i]-4)**2)
-# for i in range(30) :
-#     n, a = reduced_problem(n, a, t_min, t_max, dt, x_min, x_max, dx,
-#                                                      eps, repair, adapt, False, False)    
-# ax.plot(X,n, label="eps=0.0001")
-# 
-#  
-# ax.legend()
-# 
-# fig.show()
-
-##  Numerical tests
+##  Numerical experiments
 
 
 
 if __name__ == "__main__" :
     
+    """Figure 1 : equivalent fitness r(x) with respect to adaptation timing x"""
     
-    
-    # Figure 1 : equivalent fitness r(x) with respect to adaptation timing x
-    
-    x_min = 0
-    x_max = 10
-    dx = 0.05
-    X = np.arange(0,x_max+dx,dx)
-    
-    r1 = r1_adaptation(X)
-    r2 = r2_adaptation(X)
-    delta1 = delta1_adaptation(X)
-    delta2 = delta2_adaptation(X)
-        
-    q = corrective_term(r1, r2, delta1, delta2)
-    r_H = hamiltonian_fitness(q, r1, r2, delta1, delta2)
-        
-    display_1d(X,r_H,"Value of the timing parameter x", "Hamiltonian fitness $r_H(x)$" )
-
-    
-    # Figure 2a : equivalent fitness r(p) with respect to adaptation heterogeneity p
-    
-    p_min = 0.01
-    p_max = 10
-    dp = 0.05
-    P = np.arange(0,p_max+dp,dp)
-    
-    r1 = r1_adaptation_p(P)
-    r2 = r2_adaptation_p(P)
-    delta1 = delta1_adaptation_p(P)
-    delta2 = delta2_adaptation_p(P)
-        
-    q = corrective_term(r1, r2, delta1, delta2)
-    r_H = hamiltonian_fitness(q, r1, r2, delta1, delta2)
-    
-    display_1d(P,r_H,"Value of the heterogeneity parameter p", "Hamiltonian fitness $r_H(p)$" )
-    
-    
-    # Figure 2b : equivalent fitness r(p) with respect to adaptation heterogeneity p
-    
-    p_min = 0.01
-    p_max = 10
-    dp = 0.05
-    P = np.arange(0,p_max+dp,dp)
-    
-    r1 = r1_adaptation_p(P,20)
-    r2 = r2_adaptation_p(P,20)
-    delta1 = delta1_adaptation_p(P,20)
-    delta2 = delta2_adaptation_p(P,20)
-        
-    q = corrective_term(r1, r2, delta1, delta2)
-    r_H = hamiltonian_fitness(q, r1, r2, delta1, delta2)
-    
-    display_1d(P,r_H,"Value of the heterogeneity parameter p", "Hamiltonian fitness $r_H(p)$" )
-    
-    
-    
-    # 
-    # # Figure 3
-    # 
-    # # Time:
-    # t_min = 0
-    # t_max = 100
-    # dt = 0.05
-    # 
-    # # Space:
-    # p_min = 0.03
-    # p_max = 5
-    # dp = 0.05
-    # P = np.arange(0,p_max+dp,dp)
-    # 
-    # # Scale :
-    # eps = 0.1
-    # 
-    # # Initial condition :
-    # # n_0 = 1/8 * np.ones(X.size)
-    # 
-    # n1_0 = P.copy()
-    # for i in range(n1_0.size) :
-    #     n1_0[i] =   0.2*np.exp(-10*(P[i]-2)**2)
-    # 
-    # n2_0 = np.zeros(P.size)
-    # 
-    # r1 = r1_adaptation_p(P)
-    # r2 = r2_adaptation_p(P)
-    # delta1 = delta1_adaptation_p(P)
-    # delta2 = delta2_adaptation_p(P)
-    # print("hell yeah!")
-    # 
-    # n1, n2 = simulation(n1_0, n2_0, r1, r2, delta1, delta2, t_min, t_max, dt, p_min, p_max, dp, eps, d=(1,1), display_text=False)
-    # 
-    # display_1d(P,n1,"Value of heterogeneity parameter p", "Density of the population" )
-    
-    
-    
-    # # Figure 4
-    # 
-    # 
-    # # Time:
-    # t_min = 0
-    # t_max = 10
-    # dt = 0.05
-    # 
-    # # Space:
-    # p_min = 0.03
-    # p_max = 5
-    # dp = 0.05
-    # P = np.arange(0,p_max+dp,dp)
-    # 
-    # # Scale :
-    # eps = 0.1
-    # 
-    # # Initial condition :
-    # # n_0 = 1/8 * np.ones(X.size)
-    # 
-    # n1_0 = P.copy()
-    # for i in range(n1_0.size) :
-    #     n1_0[i] =   0.2*np.exp(-10*(P[i]-2)**2)
-    # 
-    # n2_0 = np.zeros(P.size)
-    # 
-    # n1, n2 = changing_environment(n1_0, n2_0, lambda t: env1(t/eps), t_min, t_max, dt, p_min, p_max, dp, eps, (1,1), ("slope",1.5)) 
-    # 
-    # display_1d(P,n1,"Value of heterogeneity parameter p", "Density of the population" )
-    # 
-    
-    # Figure 5
-
-
-
-    # 
-    # 
-    # # Time:
-    # t_min = 0
-    # t_max = 10
-    # dt = 0.0001
-    # 
-    # # Space:
     # x_min = 0
-    # x_max = 8
+    # x_max = 10
     # dx = 0.05
     # X = np.arange(0,x_max+dx,dx)
-    # 
-    # # Scale :
-    # eps = 0.001
-    # 
-    # # Initial condition :
-    # # n_0 = 1/8 * np.ones(X.size)
-    # 
-    # n1_0 = X.copy()
-    # for i in range(n1_0.size) :
-    #     n1_0[i] =   0.2*np.exp(-10*(X[i]-4)**2)
-    # 
-    # n2_0 = np.zeros(X.size)
     # 
     # r1 = r1_adaptation(X)
     # r2 = r2_adaptation(X)
     # delta1 = delta1_adaptation(X)
     # delta2 = delta2_adaptation(X)
-    # print("hell yeah!")
+    #     
+    # r_H = hamiltonian_fitness(r1, r2, delta1, delta2)
+    #     
+    # display_1d(X,r_H,"Value of the timing parameter $x$", "Hamiltonian fitness $r_H(x)$" )
+
+    
+    """Figure 2 : equivalent fitness r(p) with respect to adaptation heterogeneity p"""
+    
+    # # Figure 2A
+    
+    # p_min = 0.01
+    # p_max = 10
+    # dp = 0.05
+    # P = np.arange(0,p_max+dp,dp)
     # 
-    # # Corrective term and all
+    # r1 = r1_adaptation_p(P)
+    # r2 = r2_adaptation_p(P)
+    # delta1 = delta1_adaptation_p(P)
+    # delta2 = delta2_adaptation_p(P)
     # 
+    # r_H = hamiltonian_fitness(r1, r2, delta1, delta2)
+    # 
+    # display_1d(P,r_H,"Value of the heterogeneity parameter $p$", "Hamiltonian fitness $r_H(p)$" )
+    
+    
+    # # Figure 2B
+    
+    # p_min = 0.01
+    # p_max = 10
+    # dp = 0.05
+    # P = np.arange(0,p_max+dp,dp)
+    # 
+    # r1 = r1_adaptation_p(P,20)
+    # r2 = r2_adaptation_p(P,20)
+    # delta1 = delta1_adaptation_p(P,20)
+    # delta2 = delta2_adaptation_p(P,20)
+    #     
+    # r_H = hamiltonian_fitness(r1, r2, delta1, delta2)
+    # 
+    # display_1d(P,r_H,"Value of the heterogeneity parameter $p$", "Hamiltonian fitness $r_H(p)$" )
+    
+    
+    """Figure 3 : convergence of n1/n2 towards q and plot of n1 and n2 on the same graph""" 
+    
+    # # Time grid:
+    # t_min = 0
+    # t_max = 0.001
+    # dt = 0.0001
+    # 
+    # # Space grid:
+    # x_min = 0
+    # x_max = 6
+    # dx = 0.05
+    # X = np.arange(0,x_max+dx,dx)
+    # 
+    # # System:
+    # r1 = r1_adaptation(X)
+    # r2 = r2_adaptation(X)
+    # delta1 = delta1_adaptation(X)
+    # delta2 = delta2_adaptation(X)
     # q = corrective_term(r1, r2, delta1, delta2)
-    # r = equivalent_fitness(q, r1, r2, delta1, delta2)
+    # r_H = hamiltonian_fitness(r1, r2, delta1, delta2)
     # 
+    # #Scale:
+    # eps = 0.01
+    # 
+    # #Initial conditions:
+    # n1 = X.copy()
+    # for i in range(n1.size) :
+    #     n1[i] =  0.2*np.exp(-10*(X[i]-3)**2)
+    # 
+    # n2 = n1.copy()
+    # 
+    # 
+    # T=[0]
+    # diff=[np.max(np.abs( q - n1/n2 ))]
+    # 
+    # # Computations
+    # for i in range(1, 700):
+    #     T.append(i*t_max)
+    #     n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min, t_max, dt, x_min, x_max, dx, eps, d)
+    #     diff.append(np.max(np.abs( q - n1/n2 )))
+    # 
+    # # Figure A
+    # display_1d(T,diff,"Time", "$|| q(x) - n_1(x,t)/n_2(x,t) ||_{\infty}$" )
+    # 
+    # # Figure B
     # fig, ax = plt.subplots()
-    # ax.plot(X,r)
+    #     
+    # plt.xticks(fontsize=18)
+    # plt.yticks(fontsize=18)
+    # plt.setp(ax.spines.values(), linewidth=3)
+    # ax.xaxis.set_tick_params(width=3)
+    # ax.yaxis.set_tick_params(width=3)
+    # ax.set_xlabel("Value of the timing parameter $x$", fontsize=20)
+    # ax.set_ylabel("Densities $n_1$ and $n_2$ at $t=${0:.3g}".format(T[-1]), fontsize=20)
+    # 
+    # ax.plot(X,n1, linewidth=3, label="$n_1(x,${0:.3g}$)$".format(T[-1]))
+    # ax.plot(X,n2, linewidth=3, label="$n_2(x,${0:.3g}$)$".format(T[-1]))
+    #     
+    # ax.legend()    
+    # fig.show()
+    
+    
+    """Figure 4 : evolution in time for n1(x,t) with 4 different values of epsilon""" 
+    
+    # 
+    # # Time bounds:
+    # t_min = 0
+    # t_max = 20
+    # 
+    # # Space grid:
+    # x_min = 0
+    # x_max = 10
+    # dx = 0.05
+    # X = np.arange(0,x_max+dx,dx)
+    # 
+    # # System:
+    # r1 = r1_adaptation(X)
+    # r2 = r2_adaptation(X)
+    # delta1 = delta1_adaptation(X)
+    # delta2 = delta2_adaptation(X)
+    # r_H = hamiltonian_fitness(r1, r2, delta1, delta2)
+    # 
+    # #Scale:
+    # for eps in [0.05, 0.01, 0.001, 0.0001]:
+    #     print(eps)
+    #     dt = eps
+    #     if eps==0.0001:
+    #         t_max/=4
+    #     
+    #     #Initial conditions:
+    #     n1 = X.copy()
+    #     for i in range(n1.size) :
+    #         n1[i] =   0.2*np.exp(-10*(X[i]-5)**2)
+    #     
+    #     n2 = np.zeros(X.size)
+    #     
+    #     # Plots setting:
+    #     fig, ax = plt.subplots()
+    #         
+    #     plt.xticks(fontsize=18)
+    #     plt.yticks(fontsize=18)
+    #     plt.setp(ax.spines.values(), linewidth=3)
+    #     ax.xaxis.set_tick_params(width=3)
+    #     ax.yaxis.set_tick_params(width=3)
+    #     ax.set_xlabel("Value of the timing parameter $x$", fontsize=20)
+    #     ax.set_ylabel("Density $n_1(x,t)$", fontsize=20)
+    #     
+    #     #Computations:
+    #     
+    #     ax.plot(X,n1, linewidth=3, label="t=0")
+    #     
+    #     n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min, t_max, dt, x_min, x_max, dx, eps, d=(1,1))
+    #     ax.plot(X,n1, linewidth=3, label="t={}".format(t_max))
+    #     print("et 1")
+    #     n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min+t_max, t_max+t_max, dt, x_min, x_max, dx, eps, d=(1,1))
+    #     ax.plot(X,n1, linewidth=3, label="t={}".format(2*t_max))
+    #     print("et 2")
+    #     n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min+2*t_max, t_max+2*t_max, dt, x_min, x_max, dx, eps, d=(1,1))
+    #     ax.plot(X,n1, linewidth=3, label="t={}".format(3*t_max))
+    #     print("et 3")
+    #     n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min+3*t_max, t_max+3*t_max, dt, x_min, x_max, dx, eps, d=(1,1))
+    #     ax.plot(X,n1, linewidth=3, label="t={}".format(4*t_max))
+    #     print("et 4")
+    #     n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min+4*t_max, t_max+4*t_max, dt, x_min, x_max, dx, eps, d=(1,1))
+    #     ax.plot(X,n1, linewidth=3, label="t={}".format(5*t_max))
+    #     print("et 5")
+    #     ax.plot(X,(r_H-np.min(r_H))*np.max(n1)/np.max(r_H-np.min(r_H)), 'r--', linewidth=2, label="$r_H(x)$")
+    #     
+    #     #Plot show:
+    #     ax.legend()    
+    #     fig.show()
+    # 
+    
+    
+    """Figure 5 : evolution in time for n1(x,t) with 4 different pairs (d1,d2)""" 
+    
+    # # Time grid:
+    # t_min = 0
+    # t_max = 20
+    # dt = 0.001
+    # 
+    # # Space grid:
+    # x_min = 0
+    # x_max = 7
+    # dx = 0.05
+    # X = np.arange(0,x_max+dx,dx)
+    # 
+    # # System:
+    # r1 = r1_adaptation(X)
+    # r2 = r2_adaptation(X)
+    # delta1 = delta1_adaptation(X)
+    # delta2 = delta2_adaptation(X)
+    # r_H = hamiltonian_fitness(r1, r2, delta1, delta2)
+    # 
+    # #Scale:
+    # eps = 0.001
+    # 
+    # for d in [(1,1), (0.5,1.5), (0.05,1.95), (0,2)]:
+    #     print(d)
+    #     
+    #     #Initial conditions:
+    #     n1 = X.copy()
+    #     for i in range(n1.size) :
+    #         n1[i] =   0.2*np.exp(-10*(X[i]-5)**2)
+    #     
+    #     n2 = np.zeros(X.size)
+    #     
+    #     # Plots setting:
+    #     fig, ax = plt.subplots()
+    #         
+    #     plt.xticks(fontsize=18)
+    #     plt.yticks(fontsize=18)
+    #     plt.setp(ax.spines.values(), linewidth=3)
+    #     ax.xaxis.set_tick_params(width=3)
+    #     ax.yaxis.set_tick_params(width=3)
+    #     ax.set_xlabel("Value of the timing parameter $x$", fontsize=20)
+    #     ax.set_ylabel("Density $n_1(x,t)$", fontsize=20)
+    #     
+    #     #Computations:
+    #     
+    #     ax.plot(X,n1, linewidth=3, label="t=0")
+    #     
+    #     n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min, t_max, dt, x_min, x_max, dx, eps, d)
+    #     ax.plot(X,n1, linewidth=3, label="t={}".format(t_max))
+    #     print("et 1")
+    #     n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min+t_max, t_max+t_max, dt, x_min, x_max, dx, eps, d)
+    #     ax.plot(X,n1, linewidth=3, label="t={}".format(2*t_max))
+    #     print("et 2")
+    #     n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min+2*t_max, t_max+2*t_max, dt, x_min, x_max, dx, eps, d)
+    #     ax.plot(X,n1, linewidth=3, label="t={}".format(3*t_max))
+    #     print("et 3")
+    #     n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min+3*t_max, t_max+3*t_max, dt, x_min, x_max, dx, eps, d)
+    #     ax.plot(X,n1, linewidth=3, label="t={}".format(4*t_max))
+    #     print("et 4")
+    #     n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min+4*t_max, t_max+4*t_max, dt, x_min, x_max, dx, eps, d)
+    #     ax.plot(X,n1, linewidth=3, label="t={}".format(5*t_max))
+    #     print("et 5")
+    #     
+    #     #Plot show:
+    #     ax.legend()    
+    #     fig.show()
+    # 
+    
+    
+    """Figure 6 : evolution in time for n1(p,t) with 2 different values of epsilon in a stable environment""" 
+    
+    # # Time bounds:
+    # t_min = 0
+    # t_max = 30
+    # 
+    # # Space grid:
+    # p_min = 0
+    # p_max = 10
+    # dp = 0.05
+    # P = np.arange(0,p_max+dp,dp)
+    # 
+    # # System:
+    # r1 = r1_adaptation_p(P)
+    # r2 = r2_adaptation_p(P)
+    # delta1 = delta1_adaptation_p(P)
+    # delta2 = delta2_adaptation_p(P)
+    # r_H = hamiltonian_fitness(r1, r2, delta1, delta2)
+    # 
+    # #Scale:
+    # for eps in [0.01, 0.001]:
+    #     print(eps)
+    #     dt = eps
+    #     
+    #     #Initial conditions:
+    #     n1 = P.copy()
+    #     for i in range(n1.size) :
+    #         n1[i] =   0.7*np.exp(-8*(P[i]-5)**2)
+    #     
+    #     n2 = np.zeros(P.size)
+    #     
+    #     # Plots setting:
+    #     fig, ax = plt.subplots()
+    #         
+    #     plt.xticks(fontsize=18)
+    #     plt.yticks(fontsize=18)
+    #     plt.setp(ax.spines.values(), linewidth=3)
+    #     ax.xaxis.set_tick_params(width=3)
+    #     ax.yaxis.set_tick_params(width=3)
+    #     ax.set_xlabel("Value of heterogeneity parameter $p$", fontsize=20)
+    #     ax.set_ylabel("Density $n_1(p,t)$", fontsize=20)
+    #     
+    #     #Computations:
+    #     
+    #     ax.plot(P,n1, linewidth=3, label="t=0")
+    #     
+    #     n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min, t_max, dt, p_min, p_max, dp, eps, d=(1,1))
+    #     ax.plot(P,n1, linewidth=3, label="t={}".format(t_max))
+    #     print("et 1")
+    #     n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min+t_max, t_max+t_max, dt, p_min, p_max, dx, eps, d=(1,1))
+    #     ax.plot(P,n1, linewidth=3, label="t={}".format(2*t_max))
+    #     print("et 2")
+    #     n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min+2*t_max, t_max+2*t_max, dt, p_min, p_max, dx, eps, d=(1,1))
+    #     ax.plot(P,n1, linewidth=3, label="t={}".format(3*t_max))
+    #     print("et 3")
+    #     n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min+3*t_max, t_max+3*t_max, dt, p_min, p_max, dp, eps, d=(1,1))
+    #     ax.plot(P,n1, linewidth=3, label="t={}".format(4*t_max))
+    #     print("et 4")
+    #     n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min+4*t_max, t_max+4*t_max, dt, p_min, p_max, dp, eps, d=(1,1))
+    #     ax.plot(P,n1, linewidth=3, label="t={}".format(5*t_max))
+    #     print("et 5")
+    #     ax.plot(P,(r_H-np.min(r_H))*np.max(n1)/np.max(r_H-np.min(r_H)), 'r--', linewidth=2, label="$r_H(p)$")
+    #     
+    #     #Plot show:
+    #     ax.legend()    
+    #     fig.show()
+    
+    
+    """Figure 7 : evolution in time for n1(p,t) in a time-varying environment """ 
+    # 
+    # # Time bounds:
+    # t_min = 0
+    # t_max = 300
+    # 
+    # # Space grid:
+    # p_min = 4
+    # p_max = 13
+    # dp = 0.05
+    # P = np.arange(p_min,p_max+dp,dp)
+    # 
+    # # System:
+    # repair = repair_vector_p(P)
+    # r1 = 1 - D + D*repair
+    # r2 = r2_adaptation_p(P)
+    # delta1 = delta1_adaptation_p(P)
+    # delta2 = delta2_adaptation_p(P)
+    # r_H = hamiltonian_fitness(r1, r2, delta1, delta2)
+    # 
+    # #Scale:
+    # eps = 0.001
+    # dt = eps/2
+    # 
+    # #Initial conditions:
+    # n1_0 = P.copy()
+    # for i in range(n1_0.size) :
+    #     n1_0[i] =   0.5*np.exp(-5*(P[i]-8)**2)
+    # 
+    # n2_0 = np.zeros(P.size)
+    # 
+    # # Plots setting:
+    # fig, ax = plt.subplots()
+    #     
+    # plt.xticks(fontsize=18)
+    # plt.yticks(fontsize=18)
+    # plt.setp(ax.spines.values(), linewidth=3)
+    # ax.xaxis.set_tick_params(width=3)
+    # ax.yaxis.set_tick_params(width=3)
+    # ax.set_xlabel("Value of heterogeneity parameter $p$", fontsize=20)
+    # ax.set_ylabel("Density $n_1(p,t)$", fontsize=20)
+    # 
+    # #Computations:
+    # 
+    # ax.plot(P,n1_0, linewidth=3, label="t=0")
+    # print("gogogo")
+    # 
+    # n1, n2 = simulation(n1_0, n2_0, r1, r2, delta1, delta2, t_min, t_max, dt, p_min, p_max, dp, eps, d=(1,1))
+    # ax.plot(P,n1, linewidth=3, label="t={} fixed environment".format(t_max))
+    # ax.plot(P,(r_H-np.min(r_H))*np.max(n1)/np.max(r_H-np.min(r_H)), 'r--', linewidth=2, label="$r_H(p)$")
+    # print("et 1")
+    # 
+    # n1, n2 = quick_changing_environment(n1_0, n2_0, repair, r2, delta1, delta2, env3, t_min, t_max, dt, p_min, p_max, dp, eps, d=(1,1))
+    # ax.plot(P,n1, linewidth=3, label="t={} varying environment".format(t_max))
+    # print("et 2")
+    # 
+    # #Plot show:
+    # ax.legend()    
     # fig.show()
     # 
-    # 
-    # # Initialisation
-    # n1, n2 = simulation(n1_0, n2_0, r1, r2, delta1, delta2, t_min, t_max, dt, x_min, x_max, dx, eps, d=(1,1), display_text=False)
-    # 
-    # 
-    # # Further simulation
-    # n1, n2 = simulation(n1, n2, r1, r2, delta1, delta2, t_min, t_max, dt, x_min, x_max, dx, eps, d=(1,1), display_text=False)
-    # 
-    # 
-    # # plot
-    # fig, ax = plt.subplots()
-    # ax.plot(X,n1_0, label="initial")
-    # ax.plot(X,n1, label="final")
-    # ax.legend()
-    # fig.show()
-    # 
+
 
 
 ## Execution time
