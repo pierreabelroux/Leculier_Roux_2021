@@ -1163,13 +1163,13 @@ if __name__== "__main__" :
     """ Total time to compute all the figures at once on a processor Intel Core i7-10510U CPU @ 1.80GHz 2.30 GHz and a 16,0 Go RAM: around 3000 seconds (50 minutes) """
 
 
-    # figure_1()     # Computation time: 0.1 seconds
-    # figure_2()     # Computation time: 23 seconds
-    # figure_3()     # Computation time: 67 seconds
-    # figure_4()     # Computation time: 16 seconds
-    # figure_5()     # Computation time: 1150 seconds
-    # figure_6()     # Computation time: 510 seconds
-    # figure_7()     # Computation time: 378 seconds
+    figure_1()     # Computation time: 0.1 seconds
+    figure_2()     # Computation time: 23 seconds
+    figure_3()     # Computation time: 67 seconds
+    figure_4()     # Computation time: 16 seconds
+    figure_5()     # Computation time: 1150 seconds
+    figure_6()     # Computation time: 510 seconds
+    figure_7()     # Computation time: 378 seconds
     figure_8()     # Computation time: 1300 seconds
 
 
